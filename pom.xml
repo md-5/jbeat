@@ -8,18 +8,18 @@
     <packaging>jar</packaging>
 
     <name>Beat</name>
+    <description>Beat patch applier written entirely in Java using NIO</description>
     <url>https://github.com/md-5/Beat-Patcher</url>
+    <inceptionYear>2012</inceptionYear>
+    <licenses>
+        <license>
+            <name>The BSD 3-Clause License</name>
+            <url>http://opensource.org/licenses/BSD-3-Clause</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
-
-    <dependencies>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.10</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
 </project>

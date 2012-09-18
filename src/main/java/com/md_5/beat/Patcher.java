@@ -37,7 +37,6 @@ import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.WritableByteChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.util.zip.CRC32;
@@ -193,7 +192,7 @@ public final class Patcher {
         return b.order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xFFFFFFFFL;
     }
 
-    public long checksum(RandomAccessFile in, long length) throws IOException {
+    public static long checksum(RandomAccessFile in, long length) throws IOException {
         CRC32 crc = new CRC32();
         MappedByteBuffer map = in.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, length);
         byte[] back = new byte[(int) length];
@@ -205,7 +204,7 @@ public final class Patcher {
     /**
      * Read a single number from the input stream.
      */
-    private long decode(ReadableByteChannel in) throws IOException {
+    public long decode(ReadableByteChannel in) throws IOException {
         long data = 0, shift = 1;
         while (true) {
             byte x = readByte(in);
@@ -217,12 +216,6 @@ public final class Patcher {
             data += shift;
         }
         return data;
-    }
-
-    private void writeByte(int b, WritableByteChannel out) throws IOException {
-        buf.rewind();
-        buf.put((byte) b);
-        out.write(buf);
     }
 
     private byte readByte(ReadableByteChannel in) throws IOException {
