@@ -29,13 +29,15 @@
 package com.md_5.beat;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.util.zip.CRC32;
@@ -58,37 +60,26 @@ public final class Patcher {
      */
     private static final CharsetDecoder charset = Charset.forName("UTF-8").newDecoder();
     /**
-     * File containing the patch.
+     * The patch.
      */
-    private final File patchFile;
+    private final RandomAccessFile patchFile;
     /**
-     * Stream to read the patch from.
+     * What the patch was generated from.
      */
-    private final InspectingInputStream patch;
+    private final RandomAccessFile sourceFile;
     /**
-     * File containing the source.
+     * Where the patched file should go.
      */
-    private final File sourceFile;
+    private final RandomAccessFile targetFile;
     /**
-     * Stream which is the base of the patch.
+     * Buffer for byte read operations.
      */
-    private final RandomAccessFile source;
-    /**
-     * File containing the target.
-     */
-    private final File targetFile;
-    /**
-     * Stream to output the patch to.
-     */
-    private final RandomAccessFile target;
+    private final ByteBuffer buf = ByteBuffer.allocateDirect(1);
 
     public Patcher(File patchFile, File sourceFile, File targetFile) throws FileNotFoundException {
-        this.patchFile = patchFile;
-        this.patch = new InspectingInputStream(new FileInputStream(patchFile));
-        this.sourceFile = sourceFile;
-        this.source = new RandomAccessFile(sourceFile, "r");
-        this.targetFile = targetFile;
-        this.target = new RandomAccessFile(targetFile, "rw");
+        this.patchFile = new RandomAccessFile(patchFile, "r");
+        this.sourceFile = new RandomAccessFile(sourceFile, "r");
+        this.targetFile = new RandomAccessFile(targetFile, "rw");
     }
 
     /**
@@ -96,12 +87,15 @@ public final class Patcher {
      */
     public void patch() throws IOException {
         try {
+            FileChannel patch = patchFile.getChannel();
+            FileChannel source = sourceFile.getChannel();
             // read header
-            byte[] header = new byte[magicHeader.length()];
+            ByteBuffer header = ByteBuffer.allocateDirect(magicHeader.length());
             patch.read(header);
+            header.flip();
             // check the header
-            for (int i = 0; i < header.length; i++) {
-                if (header[i] != magicHeader.charAt(i)) {
+            for (char c : magicHeader.toCharArray()) {
+                if (header.get() != c) {
                     throw new IOException("Patch file does not contain correct BPS header!");
                 }
             }
@@ -109,30 +103,26 @@ public final class Patcher {
             long sourceSize = decode(patch);
             // read target size
             long targetSize = decode(patch);
+            targetFile.setLength(targetSize);
+            MappedByteBuffer target = targetFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, targetSize);
             // read metadata
             String metadata = readString(patch);
-            // check that the source file has all the data we need
-            if (sourceSize > sourceFile.length()) {
-                throw new IOException("Source file smaller than required for patch!");
-            }
             // store last offsets
-            int sourceOffset = 0, targetOffset = 0, outputOffset = 0;
+            int sourceOffset = 0, targetOffset = 0;
             // do the actual patching
-            while (patch.bytesRead < patchFile.length() - 12) {
+            while (patch.position() < patch.size() - 12) {
                 long length = decode(patch);
                 long mode = length & 3;
                 length = (length >> 2) + 1;
                 // branch per mode
                 if (mode == SOURCE_READ) {
                     while (length-- != 0) {
-                        source.seek(outputOffset);
-                        target.write(source.read());
-                        ++outputOffset;
+                        source.position(target.position());
+                        target.put(readByte(source));
                     }
                 } else if (mode == TARGET_READ) {
                     while (length-- != 0) {
-                        target.write(patch.read());
-                        ++outputOffset;
+                        target.put(readByte(patch));
                     }
                 } else {
                     // start the same
@@ -142,16 +132,14 @@ public final class Patcher {
                     if (mode == SOURCE_COPY) {
                         sourceOffset += offset;
                         while (length-- != 0) {
-                            source.seek(sourceOffset++);
-                            target.write(source.read());
-                            ++outputOffset;
+                            source.position(sourceOffset++);
+                            target.put(readByte(source));
                         }
                     } else {
                         targetOffset += offset;
                         while (length-- != 0) {
-                            target.seek(targetOffset++);
-                            target.write(target.read());
-                            ++outputOffset;
+                            target.position(targetOffset++);
+                            target.put(target.get());
                         }
                     }
                 }
@@ -173,9 +161,9 @@ public final class Patcher {
             }
         } finally {
             // close the streams
-            patch.close();
-            source.close();
-            target.close();
+            patchFile.close();
+            sourceFile.close();
+            targetFile.close();
         }
     }
 
@@ -183,13 +171,13 @@ public final class Patcher {
      * Read a UTF-8 string with variable length number length descriptor. Will
      * return null if there is no data.
      */
-    public static String readString(InputStream in) throws IOException {
+    private String readString(ReadableByteChannel in) throws IOException {
         int length = (int) decode(in);
         String ret = null;
         if (length != 0) {
-            byte[] buf = new byte[length];
+            ByteBuffer buf = ByteBuffer.allocateDirect(length);
             in.read(buf);
-            ret = charset.decode(ByteBuffer.wrap(buf)).toString();
+            ret = charset.decode(buf).toString();
         }
         return ret;
     }
@@ -198,47 +186,29 @@ public final class Patcher {
      * Read a big Endian set of bytes from the stream and returns them as a
      * unsigned little Endian integer.
      */
-    public static long readInt(InputStream in) throws IOException {
-        byte[] b = new byte[4];
+    public static long readInt(ReadableByteChannel in) throws IOException {
+        ByteBuffer b = ByteBuffer.allocate(4);
         in.read(b);
-        return (((b[3] & 0xFF) << 24) + ((b[2] & 0xFF) << 16) + ((b[1] & 0xFF) << 8) + (b[0] & 0xFF)) & 0xFFFFFFFFL;
+        b.flip();
+        return b.order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xFFFFFFFFL;
     }
 
-    public static long checksum(File file, long length) throws IOException {
+    public long checksum(RandomAccessFile in, long length) throws IOException {
         CRC32 crc = new CRC32();
-        FileInputStream in = new FileInputStream(file);
-        int b;
-        long read = 0;
-        while ((b = in.read()) != -1 && read < length) {
-            crc.update(b);
-            read++;
-        }
+        MappedByteBuffer map = in.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, length);
+        byte[] back = new byte[(int) length];
+        map.get(back);
+        crc.update(back);
         return crc.getValue();
-    }
-
-    /**
-     * Write a single long to the output stream.
-     */
-    public static void encode(long data, OutputStream out) throws IOException {
-        while (true) {
-            byte x = (byte) (data & 0x7f);
-            data >>= 7;
-            if (data == 0) {
-                out.write(0x80 | x);
-                break;
-            }
-            out.write(x);
-            data--;
-        }
     }
 
     /**
      * Read a single number from the input stream.
      */
-    public static long decode(InputStream in) throws IOException {
+    private long decode(ReadableByteChannel in) throws IOException {
         long data = 0, shift = 1;
         while (true) {
-            byte x = (byte) in.read();
+            byte x = readByte(in);
             data += (x & 0x7f) * shift;
             if ((x & 0x80) != 0x00) {
                 break;
@@ -249,23 +219,24 @@ public final class Patcher {
         return data;
     }
 
-    private class InspectingInputStream extends InputStream {
+    private void writeByte(int b, WritableByteChannel out) throws IOException {
+        buf.rewind();
+        buf.put((byte) b);
+        out.write(buf);
+    }
 
-        private final InputStream wrapped;
-        private long bytesRead;
-
-        public InspectingInputStream(InputStream wrapped) {
-            this.wrapped = wrapped;
-        }
-
-        @Override
-        public int read() throws IOException {
-            ++bytesRead;
-            return wrapped.read();
-        }
+    private byte readByte(ReadableByteChannel in) throws IOException {
+        buf.rewind();
+        in.read(buf);
+        buf.flip();
+        return buf.get();
     }
 
     public static void main(String[] args) throws IOException {
-        new Patcher(new File("Patch.bps"), new File("Original.sfc"), new File("out.bin")).patch();
+        File patch = new File("Patch.bps");
+        File source = new File("Original.sfc");
+        File target = new File("out.bin");
+
+        new Patcher(patch, source, target).patch();
     }
 }
