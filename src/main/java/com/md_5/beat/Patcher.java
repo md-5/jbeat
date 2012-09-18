@@ -28,7 +28,6 @@
  */
 package com.md_5.beat;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -46,10 +45,10 @@ public final class Patcher {
     /**
      * Patch commands used through the patch process.
      */
-    private enum Commands {
-
-        SOURCE_READ, TARGET_READ, SOURCE_COPY, TARGET_COPY;
-    }
+    private static final long SOURCE_READ = 0;
+    private static final long TARGET_READ = 1;
+    private static final long SOURCE_COPY = 2;
+    private static final long TARGET_COPY = 3;
     /**
      * The file header.
      */
@@ -117,46 +116,44 @@ public final class Patcher {
                 throw new IOException("Source file smaller than required for patch!");
             }
             // store last offsets
-            int sourceOffset = 0, targetOffset = 0;
+            int sourceOffset = 0, targetOffset = 0, outputOffset = 0;
             // do the actual patching
             while (patch.bytesRead < patchFile.length() - 12) {
                 long length = decode(patch);
-                Commands mode = Commands.values()[(int) length & 3];
+                long mode = length & 3;
                 length = (length >> 2) + 1;
-                switch (mode) {
-                    case SOURCE_READ:
+                // branch per mode
+                if (mode == SOURCE_READ) {
+                    while (length-- != 0) {
+                        source.seek(outputOffset);
+                        target.write(source.read());
+                        ++outputOffset;
+                    }
+                } else if (mode == TARGET_READ) {
+                    while (length-- != 0) {
+                        target.write(patch.read());
+                        ++outputOffset;
+                    }
+                } else {
+                    // start the same
+                    long data = decode(patch);
+                    long offset = (((data & 1) != 0) ? -1 : 1) * (data >> 1);
+                    // descend deeper
+                    if (mode == SOURCE_COPY) {
+                        sourceOffset += offset;
                         while (length-- != 0) {
+                            source.seek(sourceOffset++);
                             target.write(source.read());
+                            ++outputOffset;
                         }
-                        break;
-                    case TARGET_READ:
+                    } else {
+                        targetOffset += offset;
                         while (length-- != 0) {
-                            target.write(patch.read());
+                            target.seek(targetOffset++);
+                            target.write(target.read());
+                            ++outputOffset;
                         }
-                        break;
-                    case SOURCE_COPY:
-                    case TARGET_COPY:
-                        // start the same
-                        long data = decode(patch);
-                        long offset = (((data & 1) != 0) ? -1 : 1) * (data >> 1);
-                        // descend deeper
-                        switch (mode) {
-                            case SOURCE_COPY:
-                                sourceOffset += offset;
-                                while (length-- != 0) {
-                                    source.seek(sourceOffset++);
-                                    target.write(source.read());
-                                }
-                                break;
-                            case TARGET_COPY:
-                                targetOffset += offset;
-                                while (length-- != 0) {
-                                    target.seek(targetOffset++);
-                                    target.write(target.read());
-                                }
-                                break;
-                        }
-                        break;
+                    }
                 }
             }
             // checksum of the source
@@ -269,6 +266,6 @@ public final class Patcher {
     }
 
     public static void main(String[] args) throws IOException {
-        new Patcher(new File("testdata/sourcecopy.bps"), new File("testdata/sourcecopy.source"), new File("out.bin")).patch();
+        new Patcher(new File("Patch.bps"), new File("Original.sfc"), new File("out.bin")).patch();
     }
 }
