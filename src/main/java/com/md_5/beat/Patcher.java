@@ -36,7 +36,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.util.zip.CRC32;
@@ -86,15 +85,11 @@ public final class Patcher {
      */
     public void patch() throws IOException {
         try {
-            FileChannel patch = patchFile.getChannel();
-            FileChannel source = sourceFile.getChannel();
-            // read header
-            ByteBuffer header = ByteBuffer.allocateDirect(magicHeader.length());
-            patch.read(header);
-            header.flip();
+            MappedByteBuffer patch = patchFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, patchFile.length());
+            MappedByteBuffer source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceFile.length());
             // check the header
             for (char c : magicHeader.toCharArray()) {
-                if (header.get() != c) {
+                if (patch.get() != c) {
                     throw new IOException("Patch file does not contain correct BPS header!");
                 }
             }
@@ -109,7 +104,7 @@ public final class Patcher {
             // store last offsets
             int sourceOffset = 0, targetOffset = 0;
             // do the actual patching
-            while (patch.position() < patch.size() - 12) {
+            while (patch.position() < patch.limit() - 12) {
                 long length = decode(patch);
                 long mode = length & 3;
                 length = (length >> 2) + 1;
@@ -117,11 +112,11 @@ public final class Patcher {
                 if (mode == SOURCE_READ) {
                     while (length-- != 0) {
                         source.position(target.position());
-                        target.put(readByte(source));
+                        target.put(source.get());
                     }
                 } else if (mode == TARGET_READ) {
                     while (length-- != 0) {
-                        target.put(readByte(patch));
+                        target.put(patch.get());
                     }
                 } else {
                     // start the same
@@ -132,7 +127,7 @@ public final class Patcher {
                         sourceOffset += offset;
                         while (length-- != 0) {
                             source.position(sourceOffset++);
-                            target.put(readByte(source));
+                            target.put(source.get());
                         }
                     } else {
                         targetOffset += offset;
@@ -170,13 +165,14 @@ public final class Patcher {
      * Read a UTF-8 string with variable length number length descriptor. Will
      * return null if there is no data.
      */
-    private String readString(ReadableByteChannel in) throws IOException {
+    private String readString(MappedByteBuffer in) throws IOException {
         int length = (int) decode(in);
         String ret = null;
         if (length != 0) {
-            ByteBuffer buf = ByteBuffer.allocateDirect(length);
-            in.read(buf);
-            ret = charset.decode(buf).toString();
+            int limit = in.limit();
+            in.limit(in.position() + length);
+            ret = charset.decode(in).toString();
+            in.limit(limit);
         }
         return ret;
     }
@@ -185,11 +181,10 @@ public final class Patcher {
      * Read a big Endian set of bytes from the stream and returns them as a
      * unsigned little Endian integer.
      */
-    public static long readInt(ReadableByteChannel in) throws IOException {
-        ByteBuffer b = ByteBuffer.allocate(4);
-        in.read(b);
-        b.flip();
-        return b.order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xFFFFFFFFL;
+    public static long readInt(MappedByteBuffer in) throws IOException {
+        long ret = in.order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xFFFFFFFFL;
+        in.order(ByteOrder.BIG_ENDIAN);
+        return ret;
     }
 
     public static long checksum(RandomAccessFile in, long length) throws IOException {
@@ -204,10 +199,10 @@ public final class Patcher {
     /**
      * Read a single number from the input stream.
      */
-    public long decode(ReadableByteChannel in) throws IOException {
+    public long decode(MappedByteBuffer in) throws IOException {
         long data = 0, shift = 1;
         while (true) {
-            byte x = readByte(in);
+            byte x = in.get();
             data += (x & 0x7f) * shift;
             if ((x & 0x80) != 0x00) {
                 break;
@@ -218,18 +213,16 @@ public final class Patcher {
         return data;
     }
 
-    private byte readByte(ReadableByteChannel in) throws IOException {
-        buf.rewind();
-        in.read(buf);
-        buf.flip();
-        return buf.get();
-    }
-
     public static void main(String[] args) throws IOException {
         File patch = new File("Patch.bps");
         File source = new File("Original.sfc");
         File target = new File("out.bin");
+        target.delete();
 
-        new Patcher(patch, source, target).patch();
+        Patcher p = new Patcher(patch, source, target);
+        long start = System.currentTimeMillis();
+        p.patch();
+        long end = System.currentTimeMillis();
+        System.out.println("Took: " + (end - start) + "ms to apply a " + patch.length() + " byte patch");
     }
 }
