@@ -113,8 +113,7 @@ public final class Patcher {
                 // branch per mode
                 if (mode == SOURCE_READ) {
                     while (length-- != 0) {
-                        source.position(target.position());
-                        target.put(source.get());
+                        target.put(source.get(target.position()));
                     }
                 } else if (mode == TARGET_READ) {
                     while (length-- != 0) {
@@ -128,14 +127,12 @@ public final class Patcher {
                     if (mode == SOURCE_COPY) {
                         sourceOffset += offset;
                         while (length-- != 0) {
-                            source.position(sourceOffset++);
-                            target.put(source.get());
+                            target.put(source.get(sourceOffset++));
                         }
                     } else {
                         targetOffset += offset;
                         while (length-- != 0) {
-                            target.position(targetOffset++);
-                            target.put(target.get());
+                            target.put(target.get(targetOffset++));
                         }
                     }
                 }
@@ -145,12 +142,12 @@ public final class Patcher {
             // checksum of the source
             long sourceChecksum = readInt(patch);
             if (checksum(source, sourceFile.length()) != sourceChecksum) {
-                throw new IOException("Source checksums do not match!");
+                throw new IOException("Source checksum does not match!");
             }
             // checksum of the target
             long targetChecksum = readInt(patch);
             if (checksum(target, targetFile.length()) != targetChecksum) {
-                throw new IOException("Target checksums do now match!");
+                throw new IOException("Target checksum does not match!");
             }
             // checksum of the patch itself
             long patchChecksum = readInt(patch);
@@ -216,7 +213,7 @@ public final class Patcher {
     }
 
     public static void main(String[] args) throws IOException {
-        File patch = new File("Patch.bps");
+        File patch = new File("Patch-d.bps");
         File source = new File("Original.sfc");
         File target = new File("out.bin");
         target.delete();
