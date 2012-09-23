@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-package com.md_5.beat;
+package com.md_5.jbeat;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -215,18 +215,5 @@ public final class Patcher {
             data += shift;
         }
         return data;
-    }
-
-    public static void main(String[] args) throws IOException {
-        File patch = new File("Patch-d.bps");
-        File source = new File("Original.sfc");
-        File target = new File("out.bin");
-        target.delete();
-
-        Patcher p = new Patcher(patch, source, target);
-        long start = System.currentTimeMillis();
-        p.patch();
-        long end = System.currentTimeMillis();
-        System.out.println("Took: " + (end - start) + "ms to apply a " + patch.length() + " byte patch");
     }
 }
