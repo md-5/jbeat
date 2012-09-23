@@ -32,7 +32,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -52,7 +51,7 @@ public final class Patcher {
     /**
      * The file header.
      */
-    private static final String magicHeader = "BPS1";
+    private static final char[] magicHeader = new char[]{'B', 'P', 'S', '1'};
     /**
      * UTF-8 charset decoder.
      */
@@ -70,9 +69,9 @@ public final class Patcher {
      */
     private final RandomAccessFile targetFile;
     /**
-     * Buffer for byte read operations.
+     * Reusable per instance crc object.
      */
-    private final ByteBuffer buf = ByteBuffer.allocateDirect(1);
+    private final CRC32 crc = new CRC32();
 
     public Patcher(File patchFile, File sourceFile, File targetFile) throws FileNotFoundException {
         this.patchFile = new RandomAccessFile(patchFile, "r");
@@ -86,18 +85,21 @@ public final class Patcher {
     public void patch() throws IOException {
         try {
             MappedByteBuffer patch = patchFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, patchFile.length());
-            MappedByteBuffer source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceFile.length());
             // check the header
-            for (char c : magicHeader.toCharArray()) {
+            for (char c : magicHeader) {
                 if (patch.get() != c) {
                     throw new IOException("Patch file does not contain correct BPS header!");
                 }
             }
             // read source size
             long sourceSize = decode(patch);
+            // map as much of the source file as we need
+            MappedByteBuffer source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceSize);
             // read target size
             long targetSize = decode(patch);
+            // expand the target file
             targetFile.setLength(targetSize);
+            // map it into ram
             MappedByteBuffer target = targetFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, targetSize);
             // read metadata
             String metadata = readString(patch);
@@ -138,19 +140,21 @@ public final class Patcher {
                     }
                 }
             }
+            // flip to little endian mode
+            patch.order(ByteOrder.LITTLE_ENDIAN);
             // checksum of the source
             long sourceChecksum = readInt(patch);
-            if (checksum(sourceFile, sourceFile.length()) != sourceChecksum) {
+            if (checksum(source, sourceFile.length()) != sourceChecksum) {
                 throw new IOException("Source checksums do not match!");
             }
             // checksum of the target
             long targetChecksum = readInt(patch);
-            if (checksum(targetFile, targetFile.length()) != targetChecksum) {
+            if (checksum(target, targetFile.length()) != targetChecksum) {
                 throw new IOException("Target checksums do now match!");
             }
             // checksum of the patch itself
             long patchChecksum = readInt(patch);
-            if (checksum(patchFile, patchFile.length() - 4) != patchChecksum) {
+            if (checksum(patch, patchFile.length() - 4) != patchChecksum) {
                 throw new IOException("Patch checksum does not match!");
             }
         } finally {
@@ -179,19 +183,17 @@ public final class Patcher {
 
     /**
      * Read a big Endian set of bytes from the stream and returns them as a
-     * unsigned little Endian integer.
+     * unsigned integer.
      */
-    public static long readInt(MappedByteBuffer in) throws IOException {
-        long ret = in.order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xFFFFFFFFL;
-        in.order(ByteOrder.BIG_ENDIAN);
-        return ret;
+    private long readInt(MappedByteBuffer in) throws IOException {
+        return in.getInt() & 0xFFFFFFFFL;
     }
 
-    public static long checksum(RandomAccessFile in, long length) throws IOException {
-        CRC32 crc = new CRC32();
-        MappedByteBuffer map = in.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, length);
+    private long checksum(MappedByteBuffer map, long length) throws IOException {
         byte[] back = new byte[(int) length];
+        map.rewind();
         map.get(back);
+        crc.reset();
         crc.update(back);
         return crc.getValue();
     }
@@ -199,7 +201,7 @@ public final class Patcher {
     /**
      * Read a single number from the input stream.
      */
-    public long decode(MappedByteBuffer in) throws IOException {
+    private long decode(MappedByteBuffer in) throws IOException {
         long data = 0, shift = 1;
         while (true) {
             byte x = in.get();
