@@ -32,8 +32,8 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
@@ -84,7 +84,7 @@ public final class Patcher {
      */
     public void patch() throws IOException {
         try {
-            MappedByteBuffer patch = patchFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, patchFile.length());
+            ByteBuffer patch = patchFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, patchFile.length());
             // check the header
             for (char c : magicHeader) {
                 if (patch.get() != c) {
@@ -94,13 +94,13 @@ public final class Patcher {
             // read source size
             long sourceSize = decode(patch);
             // map as much of the source file as we need
-            MappedByteBuffer source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceSize);
+            ByteBuffer source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceSize);
             // read target size
             long targetSize = decode(patch);
             // expand the target file
             targetFile.setLength(targetSize);
             // map it into ram
-            MappedByteBuffer target = targetFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, targetSize);
+            ByteBuffer target = targetFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, targetSize);
             // read metadata
             String metadata = readString(patch);
             // store last offsets
@@ -166,7 +166,7 @@ public final class Patcher {
      * Read a UTF-8 string with variable length number length descriptor. Will
      * return null if there is no data.
      */
-    private String readString(MappedByteBuffer in) throws IOException {
+    private String readString(ByteBuffer in) throws IOException {
         int length = (int) decode(in);
         String ret = null;
         if (length != 0) {
@@ -182,14 +182,19 @@ public final class Patcher {
      * Read a big Endian set of bytes from the stream and returns them as a
      * unsigned integer.
      */
-    private long readInt(MappedByteBuffer in) throws IOException {
+    private long readInt(ByteBuffer in) throws IOException {
         return in.getInt() & 0xFFFFFFFFL;
     }
 
-    private long checksum(MappedByteBuffer map, long length) throws IOException {
+    /**
+     * Checksums a byte buffer uses a reusable crc32 instance. This method will
+     * checksum up to {@code length} bytes from the buffer. It is destructive
+     * and will call {@link ByteBuffer.reset()}
+     */
+    private long checksum(ByteBuffer in, long length) throws IOException {
         byte[] back = new byte[(int) length];
-        map.rewind();
-        map.get(back);
+        in.rewind();
+        in.get(back);
         crc.reset();
         crc.update(back);
         return crc.getValue();
@@ -198,7 +203,7 @@ public final class Patcher {
     /**
      * Read a single number from the input stream.
      */
-    private long decode(MappedByteBuffer in) throws IOException {
+    private long decode(ByteBuffer in) throws IOException {
         long data = 0, shift = 1;
         while (true) {
             byte x = in.get();
