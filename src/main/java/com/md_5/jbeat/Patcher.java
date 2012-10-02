@@ -28,6 +28,7 @@
  */
 package com.md_5.jbeat;
 
+import static com.md_5.jbeat.Shared.*;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -35,27 +36,10 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
 import java.util.zip.CRC32;
 
 public final class Patcher {
 
-    /**
-     * Patch commands used through the patch process.
-     */
-    private static final long SOURCE_READ = 0;
-    private static final long TARGET_READ = 1;
-    private static final long SOURCE_COPY = 2;
-    private static final long TARGET_COPY = 3;
-    /**
-     * The file header.
-     */
-    private static final char[] magicHeader = new char[]{'B', 'P', 'S', '1'};
-    /**
-     * UTF-8 charset decoder.
-     */
-    private static final CharsetDecoder charset = Charset.forName("UTF-8").newDecoder();
     /**
      * The patch.
      */
@@ -141,17 +125,17 @@ public final class Patcher {
             patch.order(ByteOrder.LITTLE_ENDIAN);
             // checksum of the source
             long sourceChecksum = readInt(patch);
-            if (checksum(source, sourceFile.length()) != sourceChecksum) {
+            if (checksum(source, sourceFile.length(), crc) != sourceChecksum) {
                 throw new IOException("Source checksum does not match!");
             }
             // checksum of the target
             long targetChecksum = readInt(patch);
-            if (checksum(target, targetFile.length()) != targetChecksum) {
+            if (checksum(target, targetFile.length(), crc) != targetChecksum) {
                 throw new IOException("Target checksum does not match!");
             }
             // checksum of the patch itself
             long patchChecksum = readInt(patch);
-            if (checksum(patch, patchFile.length() - 4) != patchChecksum) {
+            if (checksum(patch, patchFile.length() - 4, crc) != patchChecksum) {
                 throw new IOException("Patch checksum does not match!");
             }
         } finally {
@@ -184,20 +168,6 @@ public final class Patcher {
      */
     private long readInt(ByteBuffer in) throws IOException {
         return in.getInt() & 0xFFFFFFFFL;
-    }
-
-    /**
-     * Checksums a byte buffer uses a reusable crc32 instance. This method will
-     * checksum up to {@code length} bytes from the buffer. It is destructive
-     * and will call {@link ByteBuffer.reset()}
-     */
-    private long checksum(ByteBuffer in, long length) throws IOException {
-        byte[] back = new byte[(int) length];
-        in.rewind();
-        in.get(back);
-        crc.reset();
-        crc.update(back);
-        return crc.getValue();
     }
 
     /**
