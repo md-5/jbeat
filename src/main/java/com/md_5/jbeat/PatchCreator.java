@@ -19,7 +19,7 @@ abstract class PatchCreator {
     protected ByteBuffer source;
     protected ByteBuffer target;
     protected final File output;
-    protected final OutputStream out;
+    protected final FileOutputStream out;
     private final String header;
     private final CRC32 crc = new CRC32();
 
@@ -48,6 +48,9 @@ abstract class PatchCreator {
             encode(out, original.length());
             // write modified size
             encode(out, modified.length());
+            // write header length
+            int headerLength = (header == null) ? 0 : header.length();
+            encode(out, headerLength);
             // write the header
             if (header != null) {
                 ByteBuffer encoded = encoder.encode(CharBuffer.wrap(header));
@@ -59,7 +62,10 @@ abstract class PatchCreator {
             writeIntLE(out, (int) checksum(source, original.length(), crc));
             // write target checksum
             writeIntLE(out, (int) checksum(target, modified.length(), crc));
+            // map ourselves to ram
+            ByteBuffer self = new RandomAccessFile(output, "rw").getChannel().map(FileChannel.MapMode.READ_ONLY, 0, output.length());
             // write self checksum
+            writeIntLE(out, (int) checksum(self, output.length(), crc));
         } finally {
             // close the streams
             original.close();
