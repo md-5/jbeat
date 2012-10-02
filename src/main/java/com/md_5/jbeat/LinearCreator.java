@@ -65,7 +65,7 @@ public final class LinearCreator extends PatchCreator {
             encode(out, TARGET_READ | ((targetReadLength - 1) << 2));
             int offset = outputOffset - targetReadLength;
             while (targetReadLength != 0) {
-                out.put(target.get(offset++));
+                out.write(target.get(offset++));
                 targetReadLength--;
             }
         }
