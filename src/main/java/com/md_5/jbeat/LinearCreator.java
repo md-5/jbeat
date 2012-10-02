@@ -19,11 +19,9 @@ public final class LinearCreator extends PatchCreator {
 
     @Override
     protected void doPatch() throws IOException {
-
-        int Granularity = 1;
-        while (outputOffset < modified.length()) {
+        while (outputOffset < target.limit()) {
             int sourceLength = 0;
-            for (int n = 0; outputOffset + n < Math.min(original.length(), modified.length()); n++) {
+            for (int n = 0; outputOffset + n < Math.min(source.limit(), target.limit()); n++) {
                 if (source.get(outputOffset + n) != target.get(outputOffset + n)) {
                     break;
                 }
@@ -31,8 +29,8 @@ public final class LinearCreator extends PatchCreator {
             }
 
             int rleLength = 0;
-            for (int n = 1; outputOffset + n < modified.length(); n++) {
-                if (target.get(outputOffset) != target.get(outputOffset + n))  {
+            for (int n = 1; outputOffset + n < target.limit(); n++) {
+                if (target.get(outputOffset) != target.get(outputOffset + n)) {
                     break;
                 }
                 rleLength++;
@@ -55,8 +53,8 @@ public final class LinearCreator extends PatchCreator {
                 encode(out, SOURCE_READ | ((sourceLength - 1) << 2));
                 outputOffset += sourceLength;
             } else {
-                targetReadLength += Granularity;
-                outputOffset += Granularity;
+                targetReadLength++;
+                outputOffset++;
             }
         }
         targetReadFlush();
@@ -65,9 +63,9 @@ public final class LinearCreator extends PatchCreator {
     private void targetReadFlush() throws IOException {
         if (targetReadLength != 0) {
             encode(out, TARGET_READ | ((targetReadLength - 1) << 2));
-            long offset = outputOffset - targetReadLength;
+            int offset = outputOffset - targetReadLength;
             while (targetReadLength != 0) {
-                out.write(target.get((int) offset++));
+                out.write(target.get(offset++));
                 targetReadLength--;
             }
         }

@@ -45,9 +45,9 @@ abstract class PatchCreator {
                 out.write(c);
             }
             // write original size
-            encode(out, original.length());
+            encode(out, source.limit());
             // write modified size
-            encode(out, modified.length());
+            encode(out, target.limit());
             // write header length
             int headerLength = (header == null) ? 0 : header.length();
             encode(out, headerLength);
@@ -59,13 +59,13 @@ abstract class PatchCreator {
             // do the actual patch
             doPatch();
             // write original checksum
-            writeIntLE(out, (int) checksum(source, original.length(), crc));
+            writeIntLE(out, (int) checksum(source, source.limit(), crc));
             // write target checksum
-            writeIntLE(out, (int) checksum(target, modified.length(), crc));
+            writeIntLE(out, (int) checksum(target, target.limit(), crc));
             // map ourselves to ram
             ByteBuffer self = new RandomAccessFile(output, "rw").getChannel().map(FileChannel.MapMode.READ_ONLY, 0, output.length());
             // write self checksum
-            writeIntLE(out, (int) checksum(self, output.length(), crc));
+            writeIntLE(out, (int) checksum(self, self.limit(), crc));
         } finally {
             // close the streams
             original.close();
@@ -74,14 +74,14 @@ abstract class PatchCreator {
         }
     }
 
-    public static void writeIntLE(OutputStream out, int value) throws IOException {
+    private void writeIntLE(OutputStream out, int value) throws IOException {
         out.write(value & 0xFF);
         out.write((value >> 8) & 0xFF);
         out.write((value >> 16) & 0xFF);
         out.write((value >> 24) & 0xFF);
     }
 
-    protected void encode(OutputStream out, long data) throws IOException {
+    protected final void encode(OutputStream out, long data) throws IOException {
         while (true) {
             long x = data & 0x7f;
             data >>= 7;
