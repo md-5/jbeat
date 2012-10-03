@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-package com.md_5.jbeat;
+package net.md_5.jbeat;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

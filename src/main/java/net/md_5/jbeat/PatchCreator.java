@@ -26,9 +26,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-package com.md_5.jbeat;
+package net.md_5.jbeat;
 
-import static com.md_5.jbeat.Shared.*;
+import static net.md_5.jbeat.Shared.*;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
