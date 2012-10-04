@@ -45,9 +45,6 @@ public final class LinearCreator extends PatchCreator {
         super(original, modified, output);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     public LinearCreator(File original, File modified, File output, String header) throws FileNotFoundException {
         super(original, modified, output, header);
     }
