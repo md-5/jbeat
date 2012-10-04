@@ -82,6 +82,17 @@ abstract class PatchCreator {
      */
     private final String header;
 
+    /**
+     * Creates a new beat patch creator instance. In order to create and output
+     * the patch the {@link #create()} method must be called.
+     *
+     * @param original file, which the patch applicator will have access to
+     * @param modified file which has been changed from the original
+     * @param output location to which the patch will be output
+     * @param header to be used as beat metadata
+     * @throws FileNotFoundException when one of the files cannot be opened for
+     * read or write access
+     */
     protected PatchCreator(File original, File modified, File output, String header) throws FileNotFoundException {
         this.sourceFile = new RandomAccessFile(original, "r");
         this.targetFile = new RandomAccessFile(modified, "r");
