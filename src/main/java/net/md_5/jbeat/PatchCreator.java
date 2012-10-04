@@ -28,7 +28,6 @@
  */
 package net.md_5.jbeat;
 
-import static net.md_5.jbeat.Shared.*;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -39,24 +38,55 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.FileChannel;
-import java.util.zip.CRC32;
+import static net.md_5.jbeat.Shared.*;
 
+/**
+ * Patch creator base. Handles the header and footer when making a patch.
+ */
 abstract class PatchCreator {
 
-    protected final RandomAccessFile original;
-    protected final RandomAccessFile modified;
+    /**
+     * The clean, unmodified file.
+     */
+    protected final RandomAccessFile sourceFile;
+    /**
+     * The source file mapped into memory.
+     */
     protected ByteBuffer source;
+    /**
+     * Length of the source file.
+     */
+    protected long sourceLength;
+    /**
+     * The modified file which we will difference with the source file.
+     */
+    protected final RandomAccessFile targetFile;
+    /**
+     * The target file mapped into memory.
+     */
     protected ByteBuffer target;
-    protected final File output;
+    /**
+     * Length of the target file.
+     */
+    protected long targetLength;
+    /**
+     * The location to which the patch will be generated.
+     */
+    protected final File outFile;
+    /**
+     * Stream to the patch output.
+     */
     protected final OutputStream out;
+    /**
+     * UTF-8, optional patch header.
+     */
     private final String header;
-    private final CRC32 crc = new CRC32();
 
     protected PatchCreator(File original, File modified, File output, String header) throws FileNotFoundException {
-        this.original = new RandomAccessFile(original, "r");
-        this.modified = new RandomAccessFile(modified, "r");
-        this.output = output;
+        this.sourceFile = new RandomAccessFile(original, "r");
+        this.targetFile = new RandomAccessFile(modified, "r");
         this.out = new BufferedOutputStream(new FileOutputStream(output));
+        this.outFile = output;
         this.header = header;
     }
 
@@ -64,19 +94,29 @@ abstract class PatchCreator {
         this(original, modified, output, null);
     }
 
+    /**
+     * Creates a beat version 1 format binary patch of the two files specified
+     * in the contrstructor. This method will header the file with beat
+     * information, delegate binary differencing to the specific patch style
+     * implementation, and then finish the patch with the various checksums
+     * before writing to disk.
+     */
     public void create() throws IOException {
         try {
+            // store file lengths
+            sourceLength = sourceFile.length();
+            targetLength = targetFile.length();
             // map the files
-            source = original.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, original.length());
-            target = modified.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, modified.length());
+            source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceLength);
+            target = targetFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, targetLength);
             // write header
             for (char c : magicHeader) {
                 out.write(c);
             }
             // write original size
-            encode(out, source.limit());
+            encode(out, sourceLength);
             // write modified size
-            encode(out, target.limit());
+            encode(out, targetLength);
             // write header length
             int headerLength = (header == null) ? 0 : header.length();
             encode(out, headerLength);
@@ -88,29 +128,39 @@ abstract class PatchCreator {
             // do the actual patch
             doPatch();
             // write original checksum
-            writeIntLE(out, (int) checksum(source, source.limit(), crc));
+            writeIntLE(out, (int) checksum(source, sourceLength));
             // write target checksum
-            writeIntLE(out, (int) checksum(target, target.limit(), crc));
+            writeIntLE(out, (int) checksum(target, targetLength));
             // map ourselves to ram
             out.flush();
-            ByteBuffer self = new RandomAccessFile(output, "rw").getChannel().map(FileChannel.MapMode.READ_ONLY, 0, output.length());
+            // store patch length
+            long outLength = outFile.length();
+            ByteBuffer self = new RandomAccessFile(outFile, "rw").getChannel().map(FileChannel.MapMode.READ_ONLY, 0, outLength);
             // write self checksum
-            writeIntLE(out, (int) checksum(self, self.limit(), crc));
+            writeIntLE(out, (int) checksum(self, outLength));
         } finally {
             // close the streams
-            original.close();
-            modified.close();
+            sourceFile.close();
+            targetFile.close();
             out.close();
         }
     }
 
+    /**
+     * Writes and integer to the specified output stream in it's little Endian
+     * form. This method does not & with 0xFF and should not need to.
+     */
     private void writeIntLE(OutputStream out, int value) throws IOException {
-        out.write(value & 0xFF);
-        out.write((value >> 8) & 0xFF);
-        out.write((value >> 16) & 0xFF);
-        out.write((value >> 24) & 0xFF);
+        out.write(value);
+        out.write(value >> 8);
+        out.write(value >> 16);
+        out.write(value >> 24);
     }
 
+    /**
+     * Encode a single number as into it's variable length form and write it to
+     * the output stream.
+     */
     protected final void encode(OutputStream out, long data) throws IOException {
         while (true) {
             long x = data & 0x7f;
@@ -124,5 +174,9 @@ abstract class PatchCreator {
         }
     }
 
+    /**
+     * Method which the patch implementation must overwrite to generate the
+     * binary differences for the patch.
+     */
     protected abstract void doPatch() throws IOException;
 }

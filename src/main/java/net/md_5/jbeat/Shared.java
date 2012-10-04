@@ -28,43 +28,63 @@
  */
 package net.md_5.jbeat;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.util.zip.CRC32;
 
-class Shared {
+/**
+ * Class containing methods common to both beat patch creators and applicators.
+ */
+final class Shared {
 
     /**
-     * Patch commands used through the patch process.
+     * Reads bytes from the source file into the target file.
      */
     static final long SOURCE_READ = 0;
+    /**
+     * Reads bytes straight from the patch itself and copies them into the
+     * target file.
+     */
     static final long TARGET_READ = 1;
+    /**
+     * Copies bytes from the specified offset and length into the target file.
+     */
     static final long SOURCE_COPY = 2;
+    /**
+     * Copies already outputted bytes from the target file to the end of the
+     * target file, repeating as necessary.
+     */
     static final long TARGET_COPY = 3;
     /**
      * The file header.
      */
     static final char[] magicHeader = new char[]{'B', 'P', 'S', '1'};
     /**
-     * UTF-8 charset decoder.
+     * beat metadata uses UTF-8 by specification.
      */
     static final Charset charset = Charset.forName("UTF-8");
+    /**
+     * UTF-8 decoder.
+     */
     static final CharsetDecoder decoder = charset.newDecoder();
+    /**
+     * UTF-8 encoder.
+     */
     static final CharsetEncoder encoder = charset.newEncoder();
 
     /**
-     * Checksums a byte buffer uses a reusable crc32 instance. This method will
-     * checksum up to {@code length} bytes from the buffer. It is destructive
-     * and will call {@link ByteBuffer.reset()}
+     * Creates a crc32 checksum of a ByteBuffer. This method will checksum up to
+     * {@code length} bytes from the buffer, starting at the beginning. <p> This
+     * method is destructive and will call {@link java.nio.Buffer#rewind()},
+     * thus discarding the current mark and position.
      */
-    static long checksum(ByteBuffer in, long length, CRC32 crc) throws IOException {
+    static long checksum(ByteBuffer in, long length) {
+        CRC32 crc = new CRC32();
         byte[] back = new byte[(int) length];
         in.rewind();
         in.get(back);
-        crc.reset();
         crc.update(back);
         return crc.getValue();
     }

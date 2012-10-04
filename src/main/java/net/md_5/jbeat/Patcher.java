@@ -28,7 +28,6 @@
  */
 package net.md_5.jbeat;
 
-import static net.md_5.jbeat.Shared.*;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -36,27 +35,37 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.util.zip.CRC32;
+import static net.md_5.jbeat.Shared.*;
 
+/**
+ * beat version 1 compliant binary patcher.
+ */
 public final class Patcher {
 
     /**
-     * The patch.
+     * The patch which we will get our instructions from.
      */
     private final RandomAccessFile patchFile;
     /**
-     * What the patch was generated from.
+     * The clean, unmodified file. This must be the same file from which the
+     * patch was generated.
      */
     private final RandomAccessFile sourceFile;
     /**
-     * Where the patched file should go.
+     * The location to which the new, patched file will be output.
      */
     private final RandomAccessFile targetFile;
-    /**
-     * Reusable per instance crc object.
-     */
-    private final CRC32 crc = new CRC32();
 
+    /**
+     * Create a new beat patcher instance. In order to complete the patch
+     * process {@link #patch()} method must be called.
+     *
+     * @param patchFile the beat format patch file
+     * @param sourceFile original file from which the patch was created
+     * @param targetFile location to which the new, patched file will be output
+     * @throws FileNotFoundException when one of the files cannot be opened for
+     * read or write access
+     */
     public Patcher(File patchFile, File sourceFile, File targetFile) throws FileNotFoundException {
         this.patchFile = new RandomAccessFile(patchFile, "r");
         this.sourceFile = new RandomAccessFile(sourceFile, "r");
@@ -68,7 +77,10 @@ public final class Patcher {
      */
     public void patch() throws IOException {
         try {
-            ByteBuffer patch = patchFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, patchFile.length());
+            // store patch length
+            long patchLength = patchFile.length();
+            // map patch file into memory
+            ByteBuffer patch = patchFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, patchLength);
             // check the header
             for (char c : magicHeader) {
                 if (patch.get() != c) {
@@ -77,20 +89,20 @@ public final class Patcher {
             }
             // read source size
             long sourceSize = decode(patch);
-            // map as much of the source file as we need
+            // map as much of the source file as we need into memory
             ByteBuffer source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceSize);
             // read target size
             long targetSize = decode(patch);
             // expand the target file
             targetFile.setLength(targetSize);
-            // map it into ram
+            // map a large enough chunk of the target into memory
             ByteBuffer target = targetFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, targetSize);
             // read metadata
             String metadata = readString(patch);
             // store last offsets
             int sourceOffset = 0, targetOffset = 0;
             // do the actual patching
-            while (patch.position() < patch.limit() - 12) {
+            while (patch.position() < patchLength - 12) {
                 long length = decode(patch);
                 long mode = length & 3;
                 length = (length >> 2) + 1;
@@ -125,17 +137,17 @@ public final class Patcher {
             patch.order(ByteOrder.LITTLE_ENDIAN);
             // checksum of the source
             long sourceChecksum = readInt(patch);
-            if (checksum(source, sourceFile.length(), crc) != sourceChecksum) {
+            if (checksum(source, sourceSize) != sourceChecksum) {
                 throw new IOException("Source checksum does not match!");
             }
             // checksum of the target
             long targetChecksum = readInt(patch);
-            if (checksum(target, targetFile.length(), crc) != targetChecksum) {
+            if (checksum(target, targetSize) != targetChecksum) {
                 throw new IOException("Target checksum does not match!");
             }
             // checksum of the patch itself
             long patchChecksum = readInt(patch);
-            if (checksum(patch, patchFile.length() - 4, crc) != patchChecksum) {
+            if (checksum(patch, patchLength - 4) != patchChecksum) {
                 throw new IOException("Patch checksum does not match!");
             }
         } finally {
@@ -148,7 +160,7 @@ public final class Patcher {
 
     /**
      * Read a UTF-8 string with variable length number length descriptor. Will
-     * return null if there is no data.
+     * return null if there is no data read, or the string is of 0 length.
      */
     private String readString(ByteBuffer in) throws IOException {
         int length = (int) decode(in);
@@ -163,21 +175,20 @@ public final class Patcher {
     }
 
     /**
-     * Read a big Endian set of bytes from the stream and returns them as a
-     * unsigned integer.
+     * Read a set of bytes from a buffer return them as a unsigned integer.
      */
     private long readInt(ByteBuffer in) throws IOException {
         return in.getInt() & 0xFFFFFFFFL;
     }
 
     /**
-     * Read a single number from the input stream.
+     * Read a single variable length number from the input stream.
      */
     private long decode(ByteBuffer in) throws IOException {
         long data = 0, shift = 1;
         while (true) {
             byte x = in.get();
-            data += (x & 0x7f) * shift;
+            data += (x & 0x7F) * shift;
             if ((x & 0x80) != 0x00) {
                 break;
             }

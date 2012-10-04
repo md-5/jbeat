@@ -28,32 +28,39 @@
  */
 package net.md_5.jbeat;
 
-import static net.md_5.jbeat.Shared.*;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import static net.md_5.jbeat.Shared.*;
 
+/**
+ * Creates straight binary patches in a linear fashion. No effort is expended
+ * applying delta compression.
+ */
 public final class LinearCreator extends PatchCreator {
+
+    private int targetReadLength, targetRelativeOffset, outputOffset;
 
     public LinearCreator(File original, File modified, File output) throws FileNotFoundException {
         super(original, modified, output);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public LinearCreator(File original, File modified, File output, String header) throws FileNotFoundException {
         super(original, modified, output, header);
     }
-    int targetReadLength = 0;
-    int targetRelativeOffset = 0, outputOffset = 0;
 
     @Override
     protected void doPatch() throws IOException {
         while (outputOffset < target.limit()) {
-            int sourceLength = 0;
-            for (int n = 0; outputOffset + n < Math.min(source.limit(), target.limit()); n++) {
+            int sourcePos = 0;
+            for (int n = 0; outputOffset + n < Math.min(sourceLength, targetLength); n++) {
                 if (source.get(outputOffset + n) != target.get(outputOffset + n)) {
                     break;
                 }
-                sourceLength++;
+                sourcePos++;
             }
 
             int rleLength = 0;
@@ -76,10 +83,10 @@ public final class LinearCreator extends PatchCreator {
                 encode(out, relativeOffset << 1);
                 outputOffset += rleLength;
                 targetRelativeOffset = outputOffset - 1;
-            } else if (sourceLength >= 4) {
+            } else if (sourcePos >= 4) {
                 targetReadFlush();
-                encode(out, SOURCE_READ | ((sourceLength - 1) << 2));
-                outputOffset += sourceLength;
+                encode(out, SOURCE_READ | ((sourcePos - 1) << 2));
+                outputOffset += sourcePos;
             } else {
                 targetReadLength++;
                 outputOffset++;
@@ -88,6 +95,9 @@ public final class LinearCreator extends PatchCreator {
         targetReadFlush();
     }
 
+    /**
+     * Write a complete target read statement.
+     */
     private void targetReadFlush() throws IOException {
         if (targetReadLength != 0) {
             encode(out, TARGET_READ | ((targetReadLength - 1) << 2));
