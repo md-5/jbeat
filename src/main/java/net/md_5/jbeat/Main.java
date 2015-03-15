@@ -88,6 +88,7 @@ public class Main {
         
         try {
             Patcher patcher = new Patcher(patch, in, out);
+            patcher.patch();
         } catch (Exception e) {
             System.err.println("Unable to patch file " + in.getName());
             e.printStackTrace();
@@ -115,13 +116,13 @@ public class Main {
         @Parameter(names = {"-b", "--second-file"}, description = "Changed file for generating patch", converter = FileConverter.class)
         private File secondFile;
         
-        @Parameter(names = {"-o", "--patch-out"}, description = "The file to put the generated patch in", converter = FileConverter.class)
+        @Parameter(names = {"--patch-out"}, description = "The file to put the generated patch in", converter = FileConverter.class)
         private File patchOut = new File("output.bps");
         
         @Parameter(names = {"-i", "--in-file"}, description = "Input file to patch", converter = FileConverter.class)
         private File inFile;
         
-        @Parameter(names = {"-b", "--out-file"}, description = "Write patched file here", converter = FileConverter.class)
+        @Parameter(names = {"-o", "--out-file"}, description = "Write patched file here", converter = FileConverter.class)
         private File outFile;
         
         @Parameter(names = {"-p", "--patch-in"}, description = "Patch to use to patch in file", converter = FileConverter.class)
