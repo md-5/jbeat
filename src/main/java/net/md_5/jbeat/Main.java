@@ -24,6 +24,10 @@ package net.md_5.jbeat;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel.MapMode;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
@@ -55,19 +59,37 @@ public class Main {
         if (!linear) throw new UnsupportedOperationException("Only linear patch creation is supported");
         createFile(patch);
         PatchCreator patchCreator = null;
+        RandomAccessFile firstRandom = null, secondRandom = null, output = null;
         try {
-            patchCreator = linear ? new LinearCreator(first, second, patch) : null;
+            firstRandom = new RandomAccessFile(first, "r");
+            secondRandom = new RandomAccessFile(second, "r");
+            output = new RandomAccessFile(patch, "rw");
         } catch (FileNotFoundException e) {
             System.err.println("Unable to open file: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
         try {
+            long firstLength = firstRandom.length();
+            long secondLength = secondRandom.length();
+            ByteBuffer firstBuffer = firstRandom.getChannel().map(MapMode.READ_ONLY, 0, firstLength);
+            ByteBuffer secondBuffer = secondRandom.getChannel().map(MapMode.READ_ONLY, 0, secondLength);
+            ByteBuffer outputBuffer = ByteBuffer.allocate((int)Math.ceil(Math.max(firstLength, secondLength) * 1.5));
+            patchCreator = linear ? new LinearCreator(firstBuffer, firstLength, secondBuffer, secondLength, outputBuffer) : null;
+            output.write(outputBuffer.array());
+            output.close();
             patchCreator.create();
         } catch (Exception e) {
             System.err.println("Unable to create patch of " + first.getName() + " and " + second.getName());
             e.printStackTrace();
             System.exit(1);
+        } finally {
+            try {
+                if (firstRandom != null) firstRandom.close();
+                if (secondRandom != null) secondRandom.close();;
+            } catch (IOException e) {
+                System.err.println("Unable to close files");
+            }
         }
         System.out.println("Successfuly created patch of " + first.getName() + " and " + second.getName() + " in " + patch.getName());
     }

@@ -25,6 +25,8 @@ package net.md_5.jbeat;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+
 import static net.md_5.jbeat.Shared.*;
 
 /**
@@ -35,12 +37,12 @@ public final class LinearCreator extends PatchCreator {
 
     private int targetReadLength, targetRelativeOffset, outputOffset;
 
-    public LinearCreator(File original, File modified, File output) throws FileNotFoundException {
-        super(original, modified, output);
+    public LinearCreator(ByteBuffer source, long sourceLength, ByteBuffer modified, long modifiedLength, ByteBuffer output, String header) {
+        super(source, sourceLength, modified, modifiedLength, output, header);
     }
 
-    public LinearCreator(File original, File modified, File output, String header) throws FileNotFoundException {
-        super(original, modified, output, header);
+    public LinearCreator(ByteBuffer source, long sourceLength, ByteBuffer modified, long modifiedLength, ByteBuffer output) {
+        super(source, sourceLength, modified, modifiedLength, output, null);
     }
 
     @Override
@@ -94,7 +96,7 @@ public final class LinearCreator extends PatchCreator {
             encode(out, TARGET_READ | ((targetReadLength - 1) << 2));
             int offset = outputOffset - targetReadLength;
             while (targetReadLength != 0) {
-                out.write(target.get(offset++));
+                out.put(target.get(offset++));
                 targetReadLength--;
             }
         }
