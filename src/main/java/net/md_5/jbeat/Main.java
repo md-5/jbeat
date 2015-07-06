@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
+import java.util.Random;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
@@ -101,14 +102,38 @@ public class Main {
             System.exit(1);
         }
         createFile(out);
-        
+
+        RandomAccessFile inRandom = null, patchRandom = null, outRandom = null;
         try {
-            Patcher patcher = new Patcher(patch, in, out);
+            inRandom = new RandomAccessFile(in, "r");
+            patchRandom = new RandomAccessFile(patch, "r");
+            outRandom = new RandomAccessFile(out, "rw");
+        } catch (FileNotFoundException ex) {
+            System.err.println("No such file: " + ex.getMessage());
+            ex.printStackTrace();
+            System.exit(1);
+        }
+        try {
+            ByteBuffer inBytes = inRandom.getChannel().map(MapMode.READ_ONLY, 0, inRandom.length());
+            ByteBuffer patchBytes = patchRandom.getChannel().map(MapMode.READ_ONLY, 0, patchRandom.length());
+            ByteBuffer outBytes = ByteBuffer.allocate((int) Math.ceil((inRandom.length() + patchRandom.length()) * 1.5));
+            Patcher patcher = new Patcher(patchBytes, patchRandom.length(), inBytes, outBytes);
+            outRandom.write(outBytes.array());
             patcher.patch();
         } catch (Exception e) {
             System.err.println("Unable to patch file " + in.getName());
             e.printStackTrace();
             System.exit(1);
+        } finally {
+            try {
+                if (inRandom != null) inRandom.close();
+                if (patchRandom != null) patchRandom.close();
+                if (outRandom != null) outRandom.close();
+            } catch (IOException e) {
+                System.err.println("Unable to close: " + e.getMessage());
+                e.printStackTrace();
+                System.exit(1);
+            }
         }
         
         System.out.println("Successfuly Patched: " + in.getName() + " with " + patch.getName());
