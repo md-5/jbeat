@@ -22,11 +22,12 @@
  */
 package net.md_5.jbeat;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.util.zip.CRC32;
+
+import net.md_5.jbeat.util.ByteBuf;
 
 /**
  * Class containing methods common to both beat patch creators and applicators.
@@ -74,11 +75,11 @@ final class Shared {
      * method is destructive and will call {@link java.nio.Buffer#rewind()},
      * thus discarding the current mark and position.
      */
-    static long checksum(ByteBuffer in, long length) {
+    static long checksum(ByteBuf in, long length) {
         CRC32 crc = new CRC32();
         byte[] back = new byte[(int) length];
-        in.rewind();
-        in.get(back);
+        in.reset();
+        in.read(back);
         crc.update(back);
         return crc.getValue();
     }

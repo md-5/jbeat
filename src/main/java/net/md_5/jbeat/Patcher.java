@@ -24,10 +24,11 @@ package net.md_5.jbeat;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.channels.FileChannel;
+
+import net.md_5.jbeat.util.ByteBuf;
+import net.md_5.jbeat.util.ByteBufs;
 
 import static net.md_5.jbeat.Shared.*;
 
@@ -39,7 +40,7 @@ public final class Patcher {
     /**
      * The patch which we will get our instructions from.
      */
-    private final ByteBuffer patch;
+    private ByteBuf patch;
     /**
      * The length of the patch bytes
      */
@@ -48,11 +49,11 @@ public final class Patcher {
      * The clean, unmodified bytes. This must be the same bytes from which the
      * patch was generated.
      */
-    private final ByteBuffer source;
+    private final ByteBuf source;
     /**
      * The location to which the new, patched bytes will be output.
      */
-    private final ByteBuffer target;
+    private final ByteBuf target;
 
     /**
      * Create a new beat patcher instance. In order to complete the patch
@@ -66,7 +67,7 @@ public final class Patcher {
      * @throws FileNotFoundException when one of the files cannot be opened for
      * read or write access
      */
-    public Patcher(ByteBuffer patch, long patchLength, ByteBuffer source, ByteBuffer target) throws FileNotFoundException {
+    public Patcher(ByteBuf patch, long patchLength, ByteBuf source, ByteBuf target) throws FileNotFoundException {
         this.patch = patch;
         this.patchLength = patchLength;
         this.source = source;
@@ -79,52 +80,56 @@ public final class Patcher {
     public void patch() throws IOException {
         // check the header
         for (char c : magicHeader) {
-            if (patch.get() != c) {
+            if (patch.read() != c) {
                 throw new IOException("Patch file does not contain correct BPS header!");
             }
         }
         // read source size
-        long sourceSize = decode(patch);
+        long sourceSize = patch.readVarLong();
         // read target size
-        long targetSize = decode(patch);
+        long targetSize = patch.readVarLong();
         // read metadata
         String metadata = readString(patch);
         // store last offsets
         int sourceOffset = 0, targetOffset = 0;
         // do the actual patching
-        while (patch.position() < patchLength - 12) {
-            long length = decode(patch);
+        while (patch.getPosition() < patchLength - 12) {
+            long length = patch.readVarLong();
             long mode = length & 3;
             length = (length >> 2) + 1;
             // branch per mode
             if (mode == SOURCE_READ) {
                 while (length-- != 0) {
-                    target.put(source.get(target.position()));
+                    target.write(source.read((int) target.getPosition()));
                 }
             } else if (mode == TARGET_READ) {
                 while (length-- != 0) {
-                    target.put(patch.get());
+                    target.write(patch.read());
                 }
             } else {
                 // start the same
-                long data = decode(patch);
+                long data = patch.readVarLong();
                 long offset = (((data & 1) != 0) ? -1 : 1) * (data >> 1);
                 // descend deeper
                 if (mode == SOURCE_COPY) {
                     sourceOffset += offset;
                     while (length-- != 0) {
-                        target.put(source.get(sourceOffset++));
+                        target.write(source.read(sourceOffset++));
                     }
                 } else {
                     targetOffset += offset;
                     while (length-- != 0) {
-                        target.put(target.get(targetOffset++));
+                        target.write(target.read(targetOffset++));
                     }
                 }
             }
         }
         // flip to little endian mode
-        patch.order(ByteOrder.LITTLE_ENDIAN);
+        try {
+            patch.setOrder(ByteOrder.LITTLE_ENDIAN);
+        } catch (UnsupportedOperationException e) {
+            patch = ByteBufs.wrap(ByteBuffer.wrap(patch.array()).order(ByteOrder.LITTLE_ENDIAN));
+        }
         // checksum of the source
         long sourceChecksum = readInt(patch);
         if (checksum(source, sourceSize) != sourceChecksum) {
@@ -146,39 +151,15 @@ public final class Patcher {
      * Read a UTF-8 string with variable length number length descriptor. Will
      * return null if there is no data read, or the string is of 0 length.
      */
-    private String readString(ByteBuffer in) throws IOException {
-        int length = (int) decode(in);
-        String ret = null;
-        if (length != 0) {
-            int limit = in.limit();
-            in.limit(in.position() + length);
-            ret = charset.decode(in).toString();
-            in.limit(limit);
-        }
-        return ret;
+    private String readString(ByteBuf in) throws IOException {
+        String s = in.readString();
+        return s.length() == 0 ? null : s;
     }
 
     /**
      * Read a set of bytes from a buffer return them as a unsigned integer.
      */
-    private long readInt(ByteBuffer in) throws IOException {
-        return in.getInt() & 0xFFFFFFFFL;
-    }
-
-    /**
-     * Read a single variable length number from the input stream.
-     */
-    private long decode(ByteBuffer in) throws IOException {
-        long data = 0, shift = 1;
-        while (true) {
-            byte x = in.get();
-            data += (x & 0x7F) * shift;
-            if ((x & 0x80) != 0x00) {
-                break;
-            }
-            shift <<= 7;
-            data += shift;
-        }
-        return data;
+    private long readInt(ByteBuf in) throws IOException {
+        return in.readInt() & 0xFFFFFFFFL;
     }
 }

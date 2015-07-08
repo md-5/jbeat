@@ -22,21 +22,23 @@
  */
 package net.md_5.jbeat;
 
+import lombok.*;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
-import java.util.Random;
+
+import net.md_5.jbeat.util.ByteBuf;
+import net.md_5.jbeat.util.ByteBufs;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.converters.FileConverter;
 
-import lombok.*;
-
 public class Main {
+
     public static void main(String[] rawArgs) {
         JBeatOptions options = new JBeatOptions();
         new JCommander(options, rawArgs);
@@ -50,7 +52,7 @@ public class Main {
             System.exit(1);
         }
     }
-    
+
     public static void createPatch(File first, File second, File patch, boolean linear) {
         if (patch.exists()) {
             System.err.println("The patch file " + patch.getName() + " exists.");
@@ -73,9 +75,9 @@ public class Main {
         try {
             long firstLength = firstRandom.length();
             long secondLength = secondRandom.length();
-            ByteBuffer firstBuffer = firstRandom.getChannel().map(MapMode.READ_ONLY, 0, firstLength);
-            ByteBuffer secondBuffer = secondRandom.getChannel().map(MapMode.READ_ONLY, 0, secondLength);
-            ByteBuffer outputBuffer = ByteBuffer.allocate((int)Math.ceil(Math.max(firstLength, secondLength) * 1.5));
+            ByteBuf firstBuffer = ByteBufs.wrap(firstRandom.getChannel().map(MapMode.READ_ONLY, 0, firstLength));
+            ByteBuf secondBuffer = ByteBufs.wrap(secondRandom.getChannel().map(MapMode.READ_ONLY, 0, secondLength));
+            ByteBuf outputBuffer = ByteBufs.create();
             patchCreator = linear ? new LinearCreator(firstBuffer, firstLength, secondBuffer, secondLength, outputBuffer) : null;
             output.write(outputBuffer.array());
             output.close();
@@ -87,14 +89,15 @@ public class Main {
         } finally {
             try {
                 if (firstRandom != null) firstRandom.close();
-                if (secondRandom != null) secondRandom.close();;
+                if (secondRandom != null) secondRandom.close();
+                ;
             } catch (IOException e) {
                 System.err.println("Unable to close files");
             }
         }
         System.out.println("Successfuly created patch of " + first.getName() + " and " + second.getName() + " in " + patch.getName());
     }
-    
+
     public static void patch(File in, File patch, File out) {
         if (out.exists()) {
             System.err.println("The output file " + out.getName() + " exists.");
@@ -114,12 +117,12 @@ public class Main {
             System.exit(1);
         }
         try {
-            ByteBuffer inBytes = inRandom.getChannel().map(MapMode.READ_ONLY, 0, inRandom.length());
-            ByteBuffer patchBytes = patchRandom.getChannel().map(MapMode.READ_ONLY, 0, patchRandom.length());
-            ByteBuffer outBytes = ByteBuffer.allocate((int) Math.ceil((inRandom.length() + patchRandom.length()) * 1.5));
+            ByteBuf inBytes = ByteBufs.wrap(inRandom.getChannel().map(MapMode.READ_ONLY, 0, inRandom.length()));
+            ByteBuf patchBytes = ByteBufs.wrap(patchRandom.getChannel().map(MapMode.READ_ONLY, 0, patchRandom.length()));
+            ByteBuf outBytes = ByteBufs.create((int) inRandom.length());
             Patcher patcher = new Patcher(patchBytes, patchRandom.length(), inBytes, outBytes);
-            outRandom.write(outBytes.array());
             patcher.patch();
+            outRandom.write(outBytes.array());
         } catch (Exception e) {
             System.err.println("Unable to patch file " + in.getName());
             e.printStackTrace();
@@ -135,10 +138,10 @@ public class Main {
                 System.exit(1);
             }
         }
-        
+
         System.out.println("Successfuly Patched: " + in.getName() + " with " + patch.getName());
     }
-    
+
     private static void createFile(File f) {
         try {
             f.createNewFile();
@@ -148,24 +151,25 @@ public class Main {
             System.exit(1);
         }
     }
-    
+
     @Getter
     public static class JBeatOptions {
+
         @Parameter(names = {"-a", "--first-file"}, description = "Original file for generating patch", converter = FileConverter.class)
         private File firstFile;
-        
+
         @Parameter(names = {"-b", "--second-file"}, description = "Changed file for generating patch", converter = FileConverter.class)
         private File secondFile;
-        
+
         @Parameter(names = {"--patch-out"}, description = "The file to put the generated patch in", converter = FileConverter.class)
         private File patchOut = new File("output.bps");
-        
+
         @Parameter(names = {"-i", "--in-file"}, description = "Input file to patch", converter = FileConverter.class)
         private File inFile;
-        
+
         @Parameter(names = {"-o", "--out-file"}, description = "Write patched file here", converter = FileConverter.class)
         private File outFile;
-        
+
         @Parameter(names = {"-p", "--patch-in"}, description = "Patch to use to patch in file", converter = FileConverter.class)
         private File patchIn;
         

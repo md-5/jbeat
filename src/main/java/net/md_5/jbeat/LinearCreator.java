@@ -22,10 +22,9 @@
  */
 package net.md_5.jbeat;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.ByteBuffer;
+
+import net.md_5.jbeat.util.ByteBuf;
 
 import static net.md_5.jbeat.Shared.*;
 
@@ -37,28 +36,28 @@ public final class LinearCreator extends PatchCreator {
 
     private int targetReadLength, targetRelativeOffset, outputOffset;
 
-    public LinearCreator(ByteBuffer source, long sourceLength, ByteBuffer modified, long modifiedLength, ByteBuffer output, String header) {
+    public LinearCreator(ByteBuf source, long sourceLength, ByteBuf modified, long modifiedLength, ByteBuf output, String header) {
         super(source, sourceLength, modified, modifiedLength, output, header);
     }
 
-    public LinearCreator(ByteBuffer source, long sourceLength, ByteBuffer modified, long modifiedLength, ByteBuffer output) {
+    public LinearCreator(ByteBuf source, long sourceLength, ByteBuf modified, long modifiedLength, ByteBuf output) {
         super(source, sourceLength, modified, modifiedLength, output, null);
     }
 
     @Override
     protected void doPatch() throws IOException {
-        while (outputOffset < target.limit()) {
+        while (outputOffset < target.readableBytes()) {
             int sourcePos = 0;
             for (int n = 0; outputOffset + n < Math.min(sourceLength, targetLength); n++) {
-                if (source.get(outputOffset + n) != target.get(outputOffset + n)) {
+                if (source.read(outputOffset + n) != target.read(outputOffset + n)) {
                     break;
                 }
                 sourcePos++;
             }
 
             int rleLength = 0;
-            for (int n = 1; outputOffset + n < target.limit(); n++) {
-                if (target.get(outputOffset) != target.get(outputOffset + n)) {
+            for (int n = 1; outputOffset + n < target.readableBytes(); n++) {
+                if (target.read(outputOffset) != target.read(outputOffset + n)) {
                     break;
                 }
                 rleLength++;
@@ -96,7 +95,7 @@ public final class LinearCreator extends PatchCreator {
             encode(out, TARGET_READ | ((targetReadLength - 1) << 2));
             int offset = outputOffset - targetReadLength;
             while (targetReadLength != 0) {
-                out.put(target.get(offset++));
+                out.write(target.read(offset++));
                 targetReadLength--;
             }
         }

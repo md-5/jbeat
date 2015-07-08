@@ -22,16 +22,11 @@
  */
 package net.md_5.jbeat;
 
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.channels.FileChannel;
+
+import net.md_5.jbeat.util.ByteBuf;
 
 import static net.md_5.jbeat.Shared.*;
 
@@ -43,7 +38,7 @@ abstract class PatchCreator {
     /**
      * The source mapped into memory.
      */
-    protected ByteBuffer source;
+    protected ByteBuf source;
     /**
      * Length of the source.
      */
@@ -51,7 +46,7 @@ abstract class PatchCreator {
     /**
      * The target mapped into memory.
      */
-    protected ByteBuffer target;
+    protected ByteBuf target;
     /**
      * Length of the target.
      */
@@ -59,7 +54,7 @@ abstract class PatchCreator {
     /**
      * The location to which the patch will be generated.
      */
-    protected final ByteBuffer out;
+    protected final ByteBuf out;
     /**
      * UTF-8, optional patch header.
      */
@@ -76,7 +71,7 @@ abstract class PatchCreator {
      * @param output location to which the patch will be output
      * @param header to be used as beat metadata
      */
-    protected PatchCreator(ByteBuffer source, long sourceLength, ByteBuffer modified, long modifiedLength, ByteBuffer output, String header) {
+    protected PatchCreator(ByteBuf source, long sourceLength, ByteBuf modified, long modifiedLength, ByteBuf output, String header) {
         this.source = source;
         this.sourceLength = sourceLength;
         this.target = modified;
@@ -85,7 +80,7 @@ abstract class PatchCreator {
         this.header = header;
     }
 
-    protected PatchCreator(ByteBuffer source, long sourceLength, ByteBuffer modified, long modifiedLength, ByteBuffer output) {
+    protected PatchCreator(ByteBuf source, long sourceLength, ByteBuf modified, long modifiedLength, ByteBuf output) {
         this(source, sourceLength, modified, modifiedLength, output, null);
     }
 
@@ -99,7 +94,7 @@ abstract class PatchCreator {
     public void create() throws IOException {
         // write header
         for (char c : magicHeader) {
-            out.putChar(c);
+            out.write((byte) c);
         }
         // write original size
         encode(out, sourceLength);
@@ -111,7 +106,7 @@ abstract class PatchCreator {
         // write the header
         if (header != null) {
             ByteBuffer encoded = encoder.encode(CharBuffer.wrap(header));
-            out.put(encoded.array(), encoded.arrayOffset(), encoded.limit());
+            out.write(encoded.array(), encoded.arrayOffset(), encoded.limit());
         }
         // do the actual patch
         doPatch();
@@ -120,35 +115,37 @@ abstract class PatchCreator {
         // write target checksum
         writeIntLE(out, (int) checksum(target, targetLength));
         // store patch length
-        long outLength = out.position();
+        long outLength = out.getPosition();
         // write self checksum
-        writeIntLE(out, (int) checksum((ByteBuffer) out.asReadOnlyBuffer().position(0), outLength));
+        ByteBuf duplicated = out.duplicate();
+        duplicated.reset();
+        writeIntLE(out, (int) checksum(duplicated, outLength));
     }
 
     /**
      * Writes and integer to the specified output stream in it's little Endian
      * form. This method does not & with 0xFF and should not need to.
      */
-    private void writeIntLE(ByteBuffer out, int value) throws IOException {
-        out.putInt(value);
-        out.putInt(value >> 8);
-        out.putInt(value >> 16);
-        out.putInt(value >> 24);
+    private void writeIntLE(ByteBuf out, int value) throws IOException {
+        out.write((byte) value);
+        out.write((byte) (value >> 8));
+        out.write((byte) (value >> 16));
+        out.write((byte) (value >> 24));
     }
 
     /**
      * Encode a single number as into it's variable length form and write it to
      * the output stream.
      */
-    protected final void encode(ByteBuffer out, long data) throws IOException {
+    protected final void encode(ByteBuf out, long data) throws IOException {
         while (true) {
             long x = data & 0x7f;
             data >>= 7;
             if (data == 0) {
-                out.put((byte) (0x80 | x));
+                out.write((byte) (0x80 | x));
                 break;
             }
-            out.put((byte) x);
+            out.write((byte) x);
             data--;
         }
     }
