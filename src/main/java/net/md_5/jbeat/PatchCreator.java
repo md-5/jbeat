@@ -1,43 +1,33 @@
 /**
- * Copyright (c) 2012, md_5. All rights reserved.
+ * The MIT License
+ * Copyright (c) 2015 Techcable
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * Redistributions of source code must retain the above copyright notice, this
- * list of conditions and the following disclaimer.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * The name of the author may not be used to endorse or promote products derived
- * from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 package net.md_5.jbeat;
 
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.channels.FileChannel;
+
+import net.md_5.jbeat.util.ByteBuf;
+
 import static net.md_5.jbeat.Shared.*;
 
 /**
@@ -46,37 +36,25 @@ import static net.md_5.jbeat.Shared.*;
 abstract class PatchCreator {
 
     /**
-     * The clean, unmodified file.
+     * The source mapped into memory.
      */
-    protected final RandomAccessFile sourceFile;
+    protected ByteBuf source;
     /**
-     * The source file mapped into memory.
-     */
-    protected ByteBuffer source;
-    /**
-     * Length of the source file.
+     * Length of the source.
      */
     protected long sourceLength;
     /**
-     * The modified file which we will difference with the source file.
+     * The target mapped into memory.
      */
-    protected final RandomAccessFile targetFile;
+    protected ByteBuf target;
     /**
-     * The target file mapped into memory.
-     */
-    protected ByteBuffer target;
-    /**
-     * Length of the target file.
+     * Length of the target.
      */
     protected long targetLength;
     /**
      * The location to which the patch will be generated.
      */
-    protected final File outFile;
-    /**
-     * Stream to the patch output.
-     */
-    protected final OutputStream out;
+    protected final ByteBuf out;
     /**
      * UTF-8, optional patch header.
      */
@@ -86,93 +64,80 @@ abstract class PatchCreator {
      * Creates a new beat patch creator instance. In order to create and output
      * the patch the {@link #create()} method must be called.
      *
-     * @param original file, which the patch applicator will have access to
-     * @param modified file which has been changed from the original
+     * @param source the original bytes to generate the patch from
+     * @param sourceLength, the number of bytes in the source
+     * @param modified the modified bytes which has been changed from the original
+     * @param modifiedLength the number of modified bytes
      * @param output location to which the patch will be output
      * @param header to be used as beat metadata
-     * @throws FileNotFoundException when one of the files cannot be opened for
-     * read or write access
      */
-    protected PatchCreator(File original, File modified, File output, String header) throws FileNotFoundException {
-        this.sourceFile = new RandomAccessFile(original, "r");
-        this.targetFile = new RandomAccessFile(modified, "r");
-        this.out = new BufferedOutputStream(new FileOutputStream(output));
-        this.outFile = output;
+    protected PatchCreator(ByteBuf source, long sourceLength, ByteBuf modified, long modifiedLength, ByteBuf output, String header) {
+        this.source = source;
+        this.sourceLength = sourceLength;
+        this.target = modified;
+        this.targetLength = modifiedLength;
+        this.out = output;
         this.header = header;
     }
 
-    protected PatchCreator(File original, File modified, File output) throws FileNotFoundException {
-        this(original, modified, output, null);
+    protected PatchCreator(ByteBuf source, long sourceLength, ByteBuf modified, long modifiedLength, ByteBuf output) {
+        this(source, sourceLength, modified, modifiedLength, output, null);
     }
 
     /**
      * Creates a beat version 1 format binary patch of the two files specified
-     * in the contrstructor. This method will header the file with beat
+     * in the constructor. This method will header the file with beat
      * information, delegate binary differencing to the specific patch style
      * implementation, and then finish the patch with the various checksums
      * before writing to disk.
      */
     public void create() throws IOException {
-        try {
-            // store file lengths
-            sourceLength = sourceFile.length();
-            targetLength = targetFile.length();
-            // map the files
-            source = sourceFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, sourceLength);
-            target = targetFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, targetLength);
-            // write header
-            for (char c : magicHeader) {
-                out.write(c);
-            }
-            // write original size
-            encode(out, sourceLength);
-            // write modified size
-            encode(out, targetLength);
-            // write header length
-            int headerLength = (header == null) ? 0 : header.length();
-            encode(out, headerLength);
-            // write the header
-            if (header != null) {
-                ByteBuffer encoded = encoder.encode(CharBuffer.wrap(header));
-                out.write(encoded.array(), encoded.arrayOffset(), encoded.limit());
-            }
-            // do the actual patch
-            doPatch();
-            // write original checksum
-            writeIntLE(out, (int) checksum(source, sourceLength));
-            // write target checksum
-            writeIntLE(out, (int) checksum(target, targetLength));
-            // map ourselves to ram
-            out.flush();
-            // store patch length
-            long outLength = outFile.length();
-            ByteBuffer self = new RandomAccessFile(outFile, "rw").getChannel().map(FileChannel.MapMode.READ_ONLY, 0, outLength);
-            // write self checksum
-            writeIntLE(out, (int) checksum(self, outLength));
-        } finally {
-            // close the streams
-            sourceFile.close();
-            targetFile.close();
-            out.close();
+        // write header
+        for (char c : magicHeader) {
+            out.write((byte) c);
         }
+        // write original size
+        encode(out, sourceLength);
+        // write modified size
+        encode(out, targetLength);
+        // write header length
+        int headerLength = (header == null) ? 0 : header.length();
+        encode(out, headerLength);
+        // write the header
+        if (header != null) {
+            ByteBuffer encoded = encoder.encode(CharBuffer.wrap(header));
+            out.write(encoded.array(), encoded.arrayOffset(), encoded.limit());
+        }
+        // do the actual patch
+        doPatch();
+        // write original checksum
+        writeIntLE(out, (int) checksum(source, sourceLength));
+        // write target checksum
+        writeIntLE(out, (int) checksum(target, targetLength));
+        // store patch length
+        long outLength = out.getPosition();
+        // write self checksum
+        ByteBuf duplicated = out.duplicate();
+        duplicated.reset();
+        writeIntLE(out, (int) checksum(duplicated, outLength));
     }
 
     /**
      * Writes and integer to the specified output stream in it's little Endian
      * form. This method does not & with 0xFF and should not need to.
      */
-    private void writeIntLE(OutputStream out, int value) throws IOException {
-        out.write(value);
-        out.write(value >> 8);
-        out.write(value >> 16);
-        out.write(value >> 24);
+    private void writeIntLE(ByteBuf out, int value) throws IOException {
+        out.write((byte) value);
+        out.write((byte) (value >> 8));
+        out.write((byte) (value >> 16));
+        out.write((byte) (value >> 24));
     }
 
     /**
      * Encode a single number as into it's variable length form and write it to
      * the output stream.
      */
-    protected final void encode(OutputStream out, long data) throws IOException {
+    protected final void encode(ByteBuf out, long data) throws IOException {
         while (true) {
             long x = data & 0x7f;
             data >>= 7;
